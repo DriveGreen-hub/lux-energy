@@ -25,15 +25,15 @@ async function fetchJson(path) {
   return res.json();
 }
 
-const EM_BASE = "https://api-access.electricitymaps.com/free-tier";
+const EM_BASE = "https://api.co2signal.com/v1";
 const EM_ZONE = "LU";
 
 async function fetchCarbonIntensity() {
-  const res = await fetch(`${EM_BASE}/carbon-intensity/latest?zone=${EM_ZONE}`, {
+  const res = await fetch(`${EM_BASE}/latest?countryCode=${EM_ZONE}`, {
     headers: { "auth-token": process.env.ELECTRICITYMAPS_API_KEY },
   });
   if (!res.ok) {
-    throw new Error(`carbon-intensity/latest -> HTTP ${res.status}`);
+    throw new Error(`co2signal/latest -> HTTP ${res.status}`);
   }
   return res.json();
 }
@@ -138,10 +138,12 @@ async function ingestInstalledCapacity(client) {
 }
 
 async function ingestCarbonIntensity(client) {
-  // Electricity Maps free tier: latest reading only, no forecast/history.
-  // Confirmed live shape: { zone, carbonIntensity, datetime, isEstimated, ... }
+  // Home Assistant-tier tokens only work against the legacy co2signal.com
+  // endpoint, not the newer api-access.electricitymaps.com path — confirmed
+  // 2026-07-01. Response is nested under `data`:
+  //   { countryCode, data: { carbonIntensity, datetime, fossilFuelPercentage }, status }
   const data = await fetchCarbonIntensity();
-  if (data.carbonIntensity === undefined || data.carbonIntensity === null) {
+  if (data.status !== "ok" || !data.data || data.data.carbonIntensity === undefined) {
     throw new Error(`unexpected response shape: ${JSON.stringify(data)}`);
   }
 
@@ -149,7 +151,7 @@ async function ingestCarbonIntensity(client) {
     `INSERT INTO carbon_intensity (ts, zone, intensity_gco2_kwh, is_estimated)
      VALUES ($1, $2, $3, $4)
      ON CONFLICT (ts, zone) DO UPDATE SET intensity_gco2_kwh = EXCLUDED.intensity_gco2_kwh`,
-    [data.datetime, EM_ZONE, data.carbonIntensity, data.isEstimated ?? null]
+    [data.data.datetime, EM_ZONE, data.data.carbonIntensity, null]
   );
   return 1;
 }
