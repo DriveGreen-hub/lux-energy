@@ -1,0 +1,13 @@
+{
+  "name": "lux-energy-dashboard",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "ingest": "node scripts/ingest.js",
+    "ingest:backfill": "node scripts/backfill.js"
+  },
+  "dependencies": {
+    "pg": "^8.12.0"
+  }
+}

@@ -1,0 +1,256 @@
+:root {
+  --bg: #0b0e13;
+  --panel: #12161d;
+  --panel-raised: #171c25;
+  --line: #232a35;
+  --text: #e7ecf2;
+  --text-dim: #8a93a3;
+  --text-faint: #5a6472;
+
+  --amber: #f0a93a;
+  --teal: #35d6b5;
+  --blue: #5c8df6;
+  --red: #f2696b;
+
+  --font-display: "Inter", -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-display);
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.app {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 28px 20px 64px;
+}
+
+/* --- Header / ticker (signature element) --- */
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-bottom: 28px;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.brand {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.brand-title {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.brand-sub {
+  font-size: 13px;
+  color: var(--text-faint);
+}
+
+.ticker {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.ticker-value {
+  font-family: var(--font-mono);
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.ticker-value.negative {
+  color: var(--red);
+}
+
+.ticker-unit {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  color: var(--text-dim);
+}
+
+.ticker-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--teal);
+  box-shadow: 0 0 0 4px rgba(53, 214, 181, 0.15);
+  animation: pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ticker-dot {
+    animation: none;
+  }
+}
+
+/* --- Grid layout --- */
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 16px;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 20px;
+}
+
+.card-wide {
+  grid-column: span 8;
+}
+.card-narrow {
+  grid-column: span 4;
+}
+.card-half {
+  grid-column: span 6;
+}
+.card-full {
+  grid-column: span 12;
+}
+
+@media (max-width: 860px) {
+  .card-wide,
+  .card-narrow,
+  .card-half,
+  .card-full {
+    grid-column: span 12;
+  }
+}
+
+.card-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 14px;
+}
+
+/* --- Flow rows (cross-border) --- */
+
+.flow-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  font-family: var(--font-mono);
+  font-size: 14px;
+}
+
+.flow-row:last-child {
+  border-bottom: none;
+}
+
+.flow-name {
+  font-family: var(--font-display);
+  color: var(--text-dim);
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.flow-value.export {
+  color: var(--teal);
+}
+
+.flow-value.import {
+  color: var(--blue);
+}
+
+/* --- Generation bars --- */
+
+.gen-row {
+  margin-bottom: 12px;
+}
+
+.gen-row-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+
+.gen-row-name {
+  color: var(--text-dim);
+}
+
+.gen-row-value {
+  font-family: var(--font-mono);
+  color: var(--text);
+}
+
+.gen-bar-track {
+  height: 6px;
+  background: var(--panel-raised);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.gen-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+}
+
+/* --- Footer / status --- */
+
+.status-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+}
+
+.status-error {
+  color: var(--red);
+}
+
+.empty-state {
+  color: var(--text-faint);
+  font-size: 13px;
+  padding: 20px 0;
+  text-align: center;
+}
