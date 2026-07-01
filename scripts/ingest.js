@@ -78,23 +78,25 @@ async function ingestGeneration(client) {
 }
 
 async function ingestCrossBorderFlows(client) {
-  // NOTE: verify exact endpoint name/shape against api.energy-charts.info
-  // before relying on this in production — cross-border flow endpoints
-  // have changed shape before. This assumes a `countries` array of
-  // { name, data[] } aligned to unix_seconds, mirroring public_power.
+  // Confirmed live shape (2026-07-01): { unix_seconds, countries: [{name, data[]}] }
+  // where values are in GW, not MW, and the API includes a "sum" series
+  // alongside real neighbor names (e.g. "sum", "Belgium", "Germany") —
+  // "sum" is the net aggregate, not a third country, and is excluded here.
   const data = await fetchJson(`/cbpf?country=${COUNTRY}`);
   let count = 0;
 
   for (const series of data.countries ?? []) {
+    if (series.name.toLowerCase() === "sum") continue;
+
     for (let i = 0; i < data.unix_seconds.length; i++) {
-      const value = series.data[i];
-      if (value === null || value === undefined) continue;
+      const valueGw = series.data[i];
+      if (valueGw === null || valueGw === undefined) continue;
       const ts = toTimestamp(data.unix_seconds[i]);
       await client.query(
         `INSERT INTO cross_border_flows (ts, country, neighbor, flow_mw)
          VALUES ($1, $2, $3, $4)
          ON CONFLICT (ts, country, neighbor) DO UPDATE SET flow_mw = EXCLUDED.flow_mw`,
-        [ts, COUNTRY, series.name, value]
+        [ts, COUNTRY, series.name, valueGw * 1000]
       );
       count++;
     }
