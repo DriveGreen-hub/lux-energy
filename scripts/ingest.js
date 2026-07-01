@@ -159,33 +159,34 @@ async function ingestCarbonIntensity(client) {
 async function main() {
   const client = await pool.connect();
   const jobs = [
-    ["prices", ingestPrices],
-    ["generation", ingestGeneration],
-    ["cross_border_flows", ingestCrossBorderFlows],
-    ["installed_capacity", ingestInstalledCapacity],
-    ["carbon_intensity", ingestCarbonIntensity],
+    ["prices", ingestPrices, true],
+    ["generation", ingestGeneration, true],
+    ["cross_border_flows", ingestCrossBorderFlows, true],
+    ["installed_capacity", ingestInstalledCapacity, true],
+    ["carbon_intensity", ingestCarbonIntensity, false], // best-effort: external free-tier API, can be flaky
   ];
 
-  let hadFailure = false;
+  let hadCriticalFailure = false;
 
-  for (const [name, fn] of jobs) {
+  for (const [name, fn, critical] of jobs) {
     try {
       const count = await fn(client);
       await logResult(client, name, "ok", `${count} rows`);
       console.log(`[ok] ${name}: ${count} rows`);
     } catch (err) {
-      hadFailure = true;
+      if (critical) hadCriticalFailure = true;
       await logResult(client, name, "error", err.message);
-      console.error(`[error] ${name}: ${err.message}`);
+      console.error(`[${critical ? "error" : "warn"}] ${name}: ${err.message}`);
     }
   }
 
   client.release();
   await pool.end();
 
-  // Non-zero exit fails the GitHub Actions run visibly rather than
-  // silently serving stale data through the API.
-  if (hadFailure) process.exit(1);
+  // Only fail the Action for series that actually matter to the dashboard's
+  // core function — a flaky best-effort API (carbon intensity) shouldn't
+  // turn the whole pipeline red.
+  if (hadCriticalFailure) process.exit(1);
 }
 
 main();
