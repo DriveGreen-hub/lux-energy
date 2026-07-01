@@ -18,3 +18,4 @@ jobs:
       - run: node scripts/ingest.js
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          ELECTRICITYMAPS_API_KEY: ${{ secrets.ELECTRICITYMAPS_API_KEY }}

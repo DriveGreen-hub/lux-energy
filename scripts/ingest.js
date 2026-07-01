@@ -25,6 +25,19 @@ async function fetchJson(path) {
   return res.json();
 }
 
+const EM_BASE = "https://api-access.electricitymaps.com/free-tier";
+const EM_ZONE = "LU";
+
+async function fetchCarbonIntensity() {
+  const res = await fetch(`${EM_BASE}/carbon-intensity/latest?zone=${EM_ZONE}`, {
+    headers: { "auth-token": process.env.ELECTRICITYMAPS_API_KEY },
+  });
+  if (!res.ok) {
+    throw new Error(`carbon-intensity/latest -> HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
 function toTimestamp(unixSeconds) {
   return new Date(unixSeconds * 1000).toISOString();
 }
@@ -124,6 +137,23 @@ async function ingestInstalledCapacity(client) {
   return count;
 }
 
+async function ingestCarbonIntensity(client) {
+  // Electricity Maps free tier: latest reading only, no forecast/history.
+  // Confirmed live shape: { zone, carbonIntensity, datetime, isEstimated, ... }
+  const data = await fetchCarbonIntensity();
+  if (data.carbonIntensity === undefined || data.carbonIntensity === null) {
+    throw new Error(`unexpected response shape: ${JSON.stringify(data)}`);
+  }
+
+  await client.query(
+    `INSERT INTO carbon_intensity (ts, zone, intensity_gco2_kwh, is_estimated)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (ts, zone) DO UPDATE SET intensity_gco2_kwh = EXCLUDED.intensity_gco2_kwh`,
+    [data.datetime, EM_ZONE, data.carbonIntensity, data.isEstimated ?? null]
+  );
+  return 1;
+}
+
 async function main() {
   const client = await pool.connect();
   const jobs = [
@@ -131,6 +161,7 @@ async function main() {
     ["generation", ingestGeneration],
     ["cross_border_flows", ingestCrossBorderFlows],
     ["installed_capacity", ingestInstalledCapacity],
+    ["carbon_intensity", ingestCarbonIntensity],
   ];
 
   let hadFailure = false;

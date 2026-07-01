@@ -35,6 +35,13 @@ function fmt(n, digits = 1) {
   return Number(n).toFixed(digits);
 }
 
+function carbonColor(gco2) {
+  if (gco2 === null || gco2 === undefined) return "var(--text-faint)";
+  if (gco2 < 150) return "var(--teal)";
+  if (gco2 < 300) return "var(--amber)";
+  return "var(--red)";
+}
+
 function relativeTime(iso) {
   if (!iso) return "never";
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -110,6 +117,23 @@ export default function App() {
           </span>
           <span className="ticker-unit">ct/kWh · DE-LU day-ahead</span>
         </div>
+        {live?.carbon_intensity && (
+          <div className="ticker">
+            <span
+              className="ticker-dot"
+              style={{ background: carbonColor(live.carbon_intensity.intensity_gco2_kwh) }}
+            />
+            <span
+              className="ticker-value"
+              style={{ color: carbonColor(live.carbon_intensity.intensity_gco2_kwh) }}
+            >
+              {fmt(live.carbon_intensity.intensity_gco2_kwh, 0)}
+            </span>
+            <span className="ticker-unit">
+              gCO₂/kWh{live.carbon_intensity.is_estimated ? " · est." : ""}
+            </span>
+          </div>
+        )}
       </header>
 
       <div className="grid">
