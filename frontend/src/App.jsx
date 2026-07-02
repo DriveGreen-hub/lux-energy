@@ -91,6 +91,7 @@ export default function App() {
   const [live, setLive] = useState(null);
   const [history, setHistory] = useState([]);
   const [genHistory, setGenHistory] = useState([]);
+  const [dailyPriceRows, setDailyPriceRows] = useState([]);
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -127,6 +128,18 @@ export default function App() {
         if (!genRes.ok) throw new Error(`generation history: HTTP ${genRes.status}`);
         const genData = await genRes.json();
         setGenHistory(genData.rows);
+
+        // Multi-day price trend: as far back as we have history, plus
+        // tomorrow once published. Day-ahead prices don't exist further
+        // than 1 day out — this isn't a forecast, just the actual window
+        // the market publishes.
+        const dailyFrom = new Date(Date.now() - 9 * 24 * 60 * 60 * 1000);
+        const dailyRes = await fetch(
+          `${API_BASE}/api/history?series=price&from=${dailyFrom.toISOString()}&to=${to.toISOString()}`
+        );
+        if (!dailyRes.ok) throw new Error(`daily price history: HTTP ${dailyRes.status}`);
+        const dailyData = await dailyRes.json();
+        setDailyPriceRows(dailyData.rows);
 
         setError(null);
       } catch (err) {
@@ -255,6 +268,34 @@ export default function App() {
         demand: row.value,
       }));
   }, [genHistory]);
+
+  // Daily average price, past ~9 days through tomorrow. Chronological order
+  // naturally puts today in the middle once enough history has accumulated —
+  // right after deploy this will be mostly empty going backward and fill in
+  // day by day as the ingestion cron keeps running.
+  const dailyPriceTrend = useMemo(() => {
+    const todayKey = new Date().toDateString();
+    const buckets = {};
+    for (const row of dailyPriceRows) {
+      const d = new Date(row.ts);
+      const dayKey = d.toDateString();
+      if (!buckets[dayKey]) buckets[dayKey] = { sum: 0, count: 0, date: new Date(d.setHours(0, 0, 0, 0)) };
+      buckets[dayKey].sum += row.value;
+      buckets[dayKey].count += 1;
+    }
+    return Object.entries(buckets)
+      .map(([dayKey, { sum, count, date }]) => ({
+        label: date.toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "2-digit" }),
+        price: sum / count,
+        isToday: dayKey === todayKey,
+        date,
+      }))
+      .sort((a, b) => a.date - b.date);
+  }, [dailyPriceRows]);
+
+  const dailyTrendPrices = dailyPriceTrend.map((d) => d.price);
+  const dailyTrendMin = dailyTrendPrices.length ? Math.min(...dailyTrendPrices) : 0;
+  const dailyTrendMax = dailyTrendPrices.length ? Math.max(...dailyTrendPrices) : 0;
 
   return (
     <div className="app">
@@ -390,6 +431,64 @@ export default function App() {
             </ResponsiveContainer>
           ) : (
             <div className="empty-state">No hourly data for today yet.</div>
+          )}
+        </section>
+
+        <section className="card card-full">
+          <div className="card-label">Daily average price — past days, today &amp; tomorrow</div>
+          {dailyPriceTrend.length > 0 ? (
+            <>
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={dailyPriceTrend}>
+                  <CartesianGrid stroke="var(--line)" vertical={false} />
+                  <XAxis
+                    dataKey="label"
+                    stroke="var(--text-faint)"
+                    tick={{ fontSize: 11, fontFamily: "var(--font-mono)" }}
+                  />
+                  <YAxis
+                    stroke="var(--text-faint)"
+                    tick={{ fontSize: 11, fontFamily: "var(--font-mono)" }}
+                    width={50}
+                    label={{
+                      value: "€/kWh",
+                      angle: -90,
+                      position: "insideLeft",
+                      fill: "var(--text-faint)",
+                      fontSize: 11,
+                    }}
+                    tickFormatter={(v) => fmt(v / 1000, 2)}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      background: "var(--panel-raised)",
+                      border: "1px solid var(--line)",
+                      borderRadius: 8,
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 12,
+                    }}
+                    labelStyle={{ color: "var(--text-dim)" }}
+                    itemStyle={{ color: "var(--text)" }}
+                    formatter={(value) => [`${fmt(value / 1000, 3)}€/kWh`, "avg price"]}
+                  />
+                  <Bar dataKey="price" radius={[4, 4, 0, 0]}>
+                    {dailyPriceTrend.map((d) => (
+                      <Cell
+                        key={d.label}
+                        fill={priceColorScale(d.price, dailyTrendMin, dailyTrendMax)}
+                        stroke={d.isToday ? "var(--text)" : "none"}
+                        strokeWidth={d.isToday ? 2 : 0}
+                      />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+              <div className="daily-summary-footnote">
+                Day-ahead prices only exist one day out — "tomorrow" is the latest this can show, not a forecast further ahead. Past days fill in as history accumulates.
+              </div>
+            </>
+          ) : (
+            <div className="empty-state">No daily price data yet.</div>
           )}
         </section>
 
