@@ -13,7 +13,12 @@ export default async function handler(req, res) {
   try {
     const [price, generation, flows, carbon] = await Promise.all([
       pool.query(
-        `SELECT ts, price_eur_mwh FROM prices ORDER BY ts DESC LIMIT 1`
+        // Prices table holds past, today's, and (once published ~13:00 CET)
+        // tomorrow's day-ahead rows all at once. "Current price" must mean
+        // the latest row at-or-before now — without the ts <= now() bound,
+        // ORDER BY ts DESC just grabs whichever row has the furthest-future
+        // timestamp, which after 13:00 CET is tomorrow's last hour, not now.
+        `SELECT ts, price_eur_mwh FROM prices WHERE ts <= now() ORDER BY ts DESC LIMIT 1`
       ),
       pool.query(
         `SELECT DISTINCT ON (production_type) production_type, value_mw, ts

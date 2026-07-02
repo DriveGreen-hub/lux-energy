@@ -168,7 +168,7 @@ export default function App() {
   const isNegative = price !== undefined && price !== null && price < 0;
   const currentPriceDate = live?.price?.ts ? new Date(live.price.ts) : null;
   const currentHourLabel = currentPriceDate
-    ? `${String(currentPriceDate.getHours()).padStart(2, "0")}:00–${String((currentPriceDate.getHours() + 1) % 24).padStart(2, "0")}:00`
+    ? currentPriceDate.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })
     : null;
 
   const generation = (live?.generation ?? [])
@@ -319,9 +319,11 @@ export default function App() {
   const dailyTrendMin = dailyTrendPrices.length ? Math.min(...dailyTrendPrices) : 0;
   const dailyTrendMax = dailyTrendPrices.length ? Math.max(...dailyTrendPrices) : 0;
 
-  // Daily average demand, past 7 days. Same shape as dailyPriceTrend so it
-  // reads consistently — will only span as many days back as we've actually
-  // been ingesting (from July 1st), filling in day by day.
+  // Daily total (MWh) and average (MW) demand, past 7 days. Total is the
+  // primary bar height — more intuitive for "how much energy was used" —
+  // average MW is kept in the tooltip for day-to-day load comparison.
+  // Integration is approximate: each 15-min sample × 0.25h, same method as
+  // the "Today so far" import/domestic summary.
   const weeklyDemandTrend = useMemo(() => {
     const todayKey = new Date().toDateString();
     const buckets = {};
@@ -335,7 +337,8 @@ export default function App() {
     return Object.entries(buckets)
       .map(([dayKey, { sum, count, date }]) => ({
         label: date.toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "2-digit" }),
-        demand: sum / count,
+        totalMwh: sum * 0.25,
+        avgMw: sum / count,
         isToday: dayKey === todayKey,
         date,
       }))
@@ -362,7 +365,7 @@ export default function App() {
             <span className="ticker-unit">
               /kWh · DE-LU day-ahead
               <br />
-              now{currentHourLabel ? ` (${currentHourLabel})` : ""}
+              as of {currentHourLabel ?? "—"} today
             </span>
           </div>
           {nextHourEntry && (
@@ -591,7 +594,7 @@ export default function App() {
         </section>
 
         <section className="card card-half">
-          <div className="card-label">Cross-border flow</div>
+          <div className="card-label">Cross-border flow — current (MW)</div>
           {flows.length > 0 ? (
             flows.map((f) => (
               <div className="flow-row" key={f.neighbor}>
@@ -711,7 +714,7 @@ export default function App() {
         </section>
 
         <section className="card card-full">
-          <div className="card-label">Power demand — daily average, past 7 days</div>
+          <div className="card-label">Power demand — total energy, past 7 days</div>
           {weeklyDemandTrend.length > 0 ? (
             <>
               <ResponsiveContainer width="100%" height={180}>
@@ -727,7 +730,7 @@ export default function App() {
                     tick={{ fontSize: 11, fontFamily: "var(--font-mono)" }}
                     width={50}
                     label={{
-                      value: "MW",
+                      value: "MWh",
                       angle: -90,
                       position: "insideLeft",
                       fill: "var(--text-faint)",
@@ -744,9 +747,12 @@ export default function App() {
                     }}
                     labelStyle={{ color: "var(--text-dim)" }}
                     itemStyle={{ color: "var(--text)" }}
-                    formatter={(value) => [`${fmt(value, 0)} MW`, "avg demand"]}
+                    formatter={(value, name, item) => [
+                      `${fmt(value, 0)} MWh total · ${fmt(item.payload.avgMw, 0)} MW avg`,
+                      "demand",
+                    ]}
                   />
-                  <Bar dataKey="demand" radius={[4, 4, 0, 0]}>
+                  <Bar dataKey="totalMwh" radius={[4, 4, 0, 0]}>
                     {weeklyDemandTrend.map((d) => (
                       <Cell
                         key={d.label}
@@ -760,7 +766,7 @@ export default function App() {
                 </BarChart>
               </ResponsiveContainer>
               <div className="daily-summary-footnote">
-                Only spans as many days as we've been ingesting since July 1st — week-over-week and month-over-month comparisons will become meaningful as more history accumulates, no changes needed on your end.
+                Totals are approximate — integrated from 15-min samples (power × 0.25h), hover a bar for that day's average MW too. Only spans as many days as we've been ingesting since July 1st — week-over-week and month-over-month comparisons will become meaningful as more history accumulates, no changes needed on your end.
               </div>
             </>
           ) : (
@@ -769,7 +775,7 @@ export default function App() {
         </section>
 
         <section className="card card-full">
-          <div className="card-label">Generation &amp; trading mix</div>
+          <div className="card-label">Generation &amp; trading mix — current (MW, live snapshot)</div>
           {generation.length > 0 ? (
             generation.map((g) => (
               <div className="gen-row" key={g.production_type}>
