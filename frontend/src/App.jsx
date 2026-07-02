@@ -80,6 +80,7 @@ function relativeTime(iso) {
 export default function App() {
   const [live, setLive] = useState(null);
   const [history, setHistory] = useState([]);
+  const [genHistory, setGenHistory] = useState([]);
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -106,6 +107,17 @@ export default function App() {
             price: r.value,
           }))
         );
+
+        // Today's generation, for the "so far today" import vs domestic summary.
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const genRes = await fetch(
+          `${API_BASE}/api/history?series=generation&from=${todayStart.toISOString()}&to=${new Date().toISOString()}`
+        );
+        if (!genRes.ok) throw new Error(`generation history: HTTP ${genRes.status}`);
+        const genData = await genRes.json();
+        setGenHistory(genData.rows);
+
         setError(null);
       } catch (err) {
         setError(err.message);
@@ -129,6 +141,33 @@ export default function App() {
   const maxGenValue = Math.max(...generation.map((g) => Math.abs(g.value_mw)), 1);
 
   const flows = live?.cross_border_flows ?? [];
+
+  // Daily import vs domestic production, integrated from 15-min generation
+  // samples (energy_mwh ≈ power_mw × 0.25h per sample — approximate, since
+  // it assumes uniform sampling rather than true interval integration).
+  const dailySummary = useMemo(() => {
+    let importedMwh = 0;
+    let domesticMwh = 0;
+    for (const row of genHistory) {
+      const energyMwh = (row.value ?? 0) * 0.25;
+      if (row.production_type === "Cross border electricity trading") {
+        importedMwh += Math.max(energyMwh, 0); // only count net-import hours, not export hours
+      } else if (
+        row.production_type !== "Load" &&
+        row.production_type !== "Residual load" &&
+        !row.production_type?.startsWith("Renewable share")
+      ) {
+        domesticMwh += Math.max(energyMwh, 0);
+      }
+    }
+    const total = importedMwh + domesticMwh;
+    return {
+      importedMwh,
+      domesticMwh,
+      importPct: total > 0 ? (importedMwh / total) * 100 : 0,
+      domesticPct: total > 0 ? (domesticMwh / total) * 100 : 0,
+    };
+  }, [genHistory]);
 
   const hourlyToday = useMemo(() => {
     const now = new Date();
@@ -300,14 +339,56 @@ export default function App() {
             flows.map((f) => (
               <div className="flow-row" key={f.neighbor}>
                 <span className="flow-name">{f.neighbor}</span>
-                <span className={`flow-value ${f.flow_mw >= 0 ? "export" : "import"}`}>
-                  {f.flow_mw >= 0 ? "→ " : "← "}
+                {/* Positive flow_mw = flow INTO Luxembourg (import). Confirmed against
+                    the raw energy-charts.info cbpf response: LU's imports from Belgium
+                    + Germany sum closely to the aggregate "Cross border electricity
+                    trading" import figure from public_power, which is only consistent
+                    if positive = import here. */}
+                <span className={`flow-value ${f.flow_mw >= 0 ? "import" : "export"}`}>
+                  {f.flow_mw >= 0 ? "← " : "→ "}
                   {fmt(Math.abs(f.flow_mw), 0)} MW
                 </span>
               </div>
             ))
           ) : (
             <div className="empty-state">No flow data yet.</div>
+          )}
+        </section>
+
+        <section className="card card-full">
+          <div className="card-label">Today so far — imported vs. produced</div>
+          {dailySummary.importedMwh + dailySummary.domesticMwh > 0 ? (
+            <>
+              <div className="daily-summary-row">
+                <div className="daily-summary-stat">
+                  <div className="daily-summary-value" style={{ color: "var(--blue)" }}>
+                    {fmt(dailySummary.importedMwh, 0)} MWh
+                  </div>
+                  <div className="daily-summary-label">Imported from abroad</div>
+                </div>
+                <div className="daily-summary-stat">
+                  <div className="daily-summary-value" style={{ color: "var(--amber)" }}>
+                    {fmt(dailySummary.domesticMwh, 0)} MWh
+                  </div>
+                  <div className="daily-summary-label">Produced in Luxembourg</div>
+                </div>
+              </div>
+              <div className="daily-summary-bar">
+                <div
+                  className="daily-summary-bar-segment"
+                  style={{ width: `${dailySummary.importPct}%`, background: "var(--blue)" }}
+                />
+                <div
+                  className="daily-summary-bar-segment"
+                  style={{ width: `${dailySummary.domesticPct}%`, background: "var(--amber)" }}
+                />
+              </div>
+              <div className="daily-summary-footnote">
+                {fmt(dailySummary.importPct, 0)}% imported · {fmt(dailySummary.domesticPct, 0)}% domestic — approximate, integrated from 15-min samples since midnight local time
+              </div>
+            </>
+          ) : (
+            <div className="empty-state">No generation data for today yet.</div>
           )}
         </section>
 

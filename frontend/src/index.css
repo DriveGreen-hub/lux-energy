@@ -230,6 +230,46 @@ body {
   border-radius: 3px;
 }
 
+/* --- Daily summary (import vs domestic) --- */
+
+.daily-summary-row {
+  display: flex;
+  gap: 32px;
+  margin-bottom: 16px;
+}
+
+.daily-summary-value {
+  font-family: var(--font-mono);
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.daily-summary-label {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 4px;
+}
+
+.daily-summary-bar {
+  display: flex;
+  height: 10px;
+  border-radius: 5px;
+  overflow: hidden;
+  background: var(--panel-raised);
+}
+
+.daily-summary-bar-segment {
+  height: 100%;
+}
+
+.daily-summary-footnote {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+}
+
 /* --- Footer / status --- */
 
 .status-bar {
