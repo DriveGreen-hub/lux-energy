@@ -69,10 +69,22 @@ body {
   color: var(--text-faint);
 }
 
+.ticker-group {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+
 .ticker {
   display: flex;
   align-items: baseline;
   gap: 10px;
+}
+
+.ticker-secondary {
+  padding-left: 20px;
+  border-left: 1px solid var(--line);
 }
 
 .ticker-value {
@@ -83,13 +95,18 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+.ticker-value-small {
+  font-size: 22px;
+}
+
 .ticker-value.negative {
   color: var(--red);
 }
 
 .ticker-unit {
   font-family: var(--font-mono);
-  font-size: 14px;
+  font-size: 12px;
+  line-height: 1.4;
   color: var(--text-dim);
 }
 

@@ -166,6 +166,10 @@ export default function App() {
   const price = live?.price?.price_eur_mwh;
   const priceEurKwh = price !== undefined && price !== null ? price / 1000 : null;
   const isNegative = price !== undefined && price !== null && price < 0;
+  const currentPriceDate = live?.price?.ts ? new Date(live.price.ts) : null;
+  const currentHourLabel = currentPriceDate
+    ? `${String(currentPriceDate.getHours()).padStart(2, "0")}:00–${String((currentPriceDate.getHours() + 1) % 24).padStart(2, "0")}:00`
+    : null;
 
   const generation = (live?.generation ?? [])
     .filter((g) => g.production_type !== "Load" && g.production_type !== "Residual load")
@@ -268,6 +272,13 @@ export default function App() {
     return [...upcomingHourly].sort((a, b) => a.price - b.price).slice(0, 3);
   }, [upcomingHourly]);
 
+  // Next hour's price, for a quick current-vs-next comparison at a glance.
+  // upcomingHourly[0] is usually the remainder of the current hour, so we
+  // look for the first bucket whose hour actually differs from now's price.
+  const nextHourEntry = currentPriceDate
+    ? upcomingHourly.find((h) => h.hourStart.getHours() !== currentPriceDate.getHours())
+    : null;
+
   // Power demand (Load) trend — same 48h window as genHistory, just one
   // production_type pulled out and reshaped for a line chart.
   const demandHistory = useMemo(() => {
@@ -342,12 +353,42 @@ export default function App() {
           <div className="brand-title">Lux Energy</div>
           <div className="brand-sub">Luxembourg grid — live generation, flows &amp; spot price</div>
         </div>
-        <div className="ticker">
-          <span className="ticker-dot" />
-          <span className={`ticker-value ${isNegative ? "negative" : ""}`}>
-            {priceEurKwh !== null ? `${fmt(priceEurKwh, 3)}€` : "—"}
-          </span>
-          <span className="ticker-unit">/kWh · DE-LU day-ahead, current</span>
+        <div className="ticker-group">
+          <div className="ticker">
+            <span className="ticker-dot" />
+            <span className={`ticker-value ${isNegative ? "negative" : ""}`}>
+              {priceEurKwh !== null ? `${fmt(priceEurKwh, 3)}€` : "—"}
+            </span>
+            <span className="ticker-unit">
+              /kWh · DE-LU day-ahead
+              <br />
+              now{currentHourLabel ? ` (${currentHourLabel})` : ""}
+            </span>
+          </div>
+          {nextHourEntry && (
+            <div className="ticker ticker-secondary">
+              <span
+                className="ticker-value ticker-value-small"
+                style={{
+                  color:
+                    nextHourEntry.price > price
+                      ? "var(--red)"
+                      : nextHourEntry.price < price
+                      ? "var(--teal)"
+                      : "var(--text-dim)",
+                }}
+              >
+                {nextHourEntry.price > price ? "↑ " : nextHourEntry.price < price ? "↓ " : "→ "}
+                {fmt(nextHourEntry.price / 1000, 3)}€
+              </span>
+              <span className="ticker-unit">
+                /kWh · next hour
+                <br />
+                ({String(nextHourEntry.hourStart.getHours()).padStart(2, "0")}:00–
+                {String((nextHourEntry.hourStart.getHours() + 1) % 24).padStart(2, "0")}:00)
+              </span>
+            </div>
+          )}
         </div>
         {live?.carbon_intensity && (
           <div className="ticker">
