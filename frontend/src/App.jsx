@@ -29,6 +29,16 @@ const GEN_COLORS = {
   Others: "var(--text-faint)",
 };
 
+const RENEWABLE_TYPES = new Set([
+  "Solar",
+  "Wind onshore",
+  "Wind offshore",
+  "Hydro Run-of-River",
+  "Hydro water reservoir",
+  "Hydro pumped storage",
+  "Biomass",
+]);
+
 function colorFor(name) {
   return GEN_COLORS[name] || "var(--text-faint)";
 }
@@ -148,6 +158,7 @@ export default function App() {
   const dailySummary = useMemo(() => {
     let importedMwh = 0;
     let domesticMwh = 0;
+    let renewableMwh = 0;
     for (const row of genHistory) {
       const energyMwh = (row.value ?? 0) * 0.25;
       if (row.production_type === "Cross border electricity trading") {
@@ -158,14 +169,19 @@ export default function App() {
         !row.production_type?.startsWith("Renewable share")
       ) {
         domesticMwh += Math.max(energyMwh, 0);
+        if (RENEWABLE_TYPES.has(row.production_type)) {
+          renewableMwh += Math.max(energyMwh, 0);
+        }
       }
     }
     const total = importedMwh + domesticMwh;
     return {
       importedMwh,
       domesticMwh,
+      renewableMwh,
       importPct: total > 0 ? (importedMwh / total) * 100 : 0,
       domesticPct: total > 0 ? (domesticMwh / total) * 100 : 0,
+      domesticRenewablePct: domesticMwh > 0 ? (renewableMwh / domesticMwh) * 100 : 0,
     };
   }, [genHistory]);
 
@@ -195,6 +211,36 @@ export default function App() {
   const hourlyPrices = hourlyToday.map((h) => h.price);
   const hourlyMin = hourlyPrices.length ? Math.min(...hourlyPrices) : 0;
   const hourlyMax = hourlyPrices.length ? Math.max(...hourlyPrices) : 0;
+
+  // All remaining hours from now onward (rest of today + tomorrow, once
+  // published ~13:00 CET) — this is what actually matters for deciding
+  // when to charge, unlike hourlyToday which includes hours already past.
+  const upcomingHourly = useMemo(() => {
+    const now = new Date();
+    const buckets = {};
+    for (const row of history) {
+      const d = new Date(row.ts);
+      if (d < now) continue;
+      const hourStart = new Date(d);
+      hourStart.setMinutes(0, 0, 0);
+      const key = hourStart.toISOString();
+      if (!buckets[key]) buckets[key] = { sum: 0, count: 0, hourStart };
+      buckets[key].sum += row.price;
+      buckets[key].count += 1;
+    }
+    return Object.values(buckets)
+      .map(({ sum, count, hourStart }) => ({
+        hourStart,
+        price: sum / count,
+        label: hourStart.toLocaleDateString("en-GB", { weekday: "short" }) +
+          " " + String(hourStart.getHours()).padStart(2, "0") + ":00",
+      }))
+      .sort((a, b) => a.hourStart - b.hourStart);
+  }, [history]);
+
+  const cheapestHours = useMemo(() => {
+    return [...upcomingHourly].sort((a, b) => a.price - b.price).slice(0, 3);
+  }, [upcomingHourly]);
 
   return (
     <div className="app">
@@ -333,7 +379,26 @@ export default function App() {
           )}
         </section>
 
-        <section className="card card-narrow">
+        <section className="card card-half">
+          <div className="card-label">Best hours to charge</div>
+          {cheapestHours.length > 0 ? (
+            cheapestHours.map((h, i) => (
+              <div className="flow-row" key={h.hourStart.toISOString()}>
+                <span className="flow-name">
+                  {i === 0 ? "★ " : ""}
+                  {h.label}
+                </span>
+                <span className="flow-value" style={{ color: "var(--teal)" }}>
+                  {fmt(h.price / 1000, 3)}€/kWh
+                </span>
+              </div>
+            ))
+          ) : (
+            <div className="empty-state">No upcoming price data yet.</div>
+          )}
+        </section>
+
+        <section className="card card-half">
           <div className="card-label">Cross-border flow</div>
           {flows.length > 0 ? (
             flows.map((f) => (
@@ -372,6 +437,12 @@ export default function App() {
                   </div>
                   <div className="daily-summary-label">Produced in Luxembourg</div>
                 </div>
+                <div className="daily-summary-stat">
+                  <div className="daily-summary-value" style={{ color: "var(--teal)" }}>
+                    {fmt(dailySummary.domesticRenewablePct, 0)}%
+                  </div>
+                  <div className="daily-summary-label">Renewable share of domestic output</div>
+                </div>
               </div>
               <div className="daily-summary-bar">
                 <div
@@ -384,7 +455,7 @@ export default function App() {
                 />
               </div>
               <div className="daily-summary-footnote">
-                {fmt(dailySummary.importPct, 0)}% imported · {fmt(dailySummary.domesticPct, 0)}% domestic — approximate, integrated from 15-min samples since midnight local time
+                {fmt(dailySummary.importPct, 0)}% imported · {fmt(dailySummary.domesticPct, 0)}% domestic — approximate, integrated from 15-min samples since midnight local time. Renewable share reflects domestic generation only, not the mix of what's imported.
               </div>
             </>
           ) : (
