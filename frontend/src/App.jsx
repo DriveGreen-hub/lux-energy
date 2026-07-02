@@ -102,7 +102,12 @@ export default function App() {
         if (!liveRes.ok) throw new Error(`live: HTTP ${liveRes.status}`);
         setLive(await liveRes.json());
 
-        const to = new Date(Date.now() + 24 * 60 * 60 * 1000); // include tomorrow's published day-ahead prices
+        // Covers through the end of tomorrow (midnight after tomorrow),
+        // regardless of what time it is today — now+24h alone would cut
+        // off tomorrow evening if it's still early in the day now.
+        const to = new Date();
+        to.setDate(to.getDate() + 2);
+        to.setHours(0, 0, 0, 0);
         const from = new Date(Date.now() - 48 * 60 * 60 * 1000);
         const histRes = await fetch(
           `${API_BASE}/api/history?series=price&from=${from.toISOString()}&to=${to.toISOString()}`
@@ -241,6 +246,34 @@ export default function App() {
   const hourlyPrices = hourlyToday.map((h) => h.price);
   const hourlyMin = hourlyPrices.length ? Math.min(...hourlyPrices) : 0;
   const hourlyMax = hourlyPrices.length ? Math.max(...hourlyPrices) : 0;
+
+  // Tomorrow's hourly prices — only populated once the day-ahead market
+  // publishes them, typically ~13:00 CET. Empty before that, not a bug.
+  const hourlyTomorrow = useMemo(() => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowKey = tomorrow.toDateString();
+    const buckets = {};
+    for (const row of history) {
+      const d = new Date(row.ts);
+      if (d.toDateString() !== tomorrowKey) continue;
+      const hour = d.getHours();
+      if (!buckets[hour]) buckets[hour] = { sum: 0, count: 0 };
+      buckets[hour].sum += row.price;
+      buckets[hour].count += 1;
+    }
+    return Object.entries(buckets)
+      .map(([hour, { sum, count }]) => ({
+        hour: Number(hour),
+        label: String(hour).padStart(2, "0"),
+        price: sum / count,
+      }))
+      .sort((a, b) => a.hour - b.hour);
+  }, [history]);
+
+  const hourlyTomorrowPrices = hourlyTomorrow.map((h) => h.price);
+  const hourlyTomorrowMin = hourlyTomorrowPrices.length ? Math.min(...hourlyTomorrowPrices) : 0;
+  const hourlyTomorrowMax = hourlyTomorrowPrices.length ? Math.max(...hourlyTomorrowPrices) : 0;
 
   // All remaining hours from now onward (rest of today + tomorrow, once
   // published ~13:00 CET) — this is what actually matters for deciding
@@ -513,6 +546,60 @@ export default function App() {
             </ResponsiveContainer>
           ) : (
             <div className="empty-state">No hourly data for today yet.</div>
+          )}
+        </section>
+
+        <section className="card card-full">
+          <div className="card-label">Price by hour — tomorrow</div>
+          {hourlyTomorrow.length > 0 ? (
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={hourlyTomorrow}>
+                <CartesianGrid stroke="var(--line)" vertical={false} />
+                <XAxis
+                  dataKey="label"
+                  stroke="var(--text-faint)"
+                  tick={{ fontSize: 11, fontFamily: "var(--font-mono)" }}
+                />
+                <YAxis
+                  stroke="var(--text-faint)"
+                  tick={{ fontSize: 11, fontFamily: "var(--font-mono)" }}
+                  width={50}
+                  label={{
+                    value: "€/kWh",
+                    angle: -90,
+                    position: "insideLeft",
+                    fill: "var(--text-faint)",
+                    fontSize: 11,
+                  }}
+                  tickFormatter={(v) => fmt(v / 1000, 2)}
+                />
+                <Tooltip
+                  contentStyle={{
+                    background: "var(--panel-raised)",
+                    border: "1px solid var(--line)",
+                    borderRadius: 8,
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 12,
+                  }}
+                  labelStyle={{ color: "var(--text-dim)" }}
+                  itemStyle={{ color: "var(--text)" }}
+                  formatter={(value) => [`${fmt(value / 1000, 3)}€/kWh`, "price"]}
+                  labelFormatter={(label) => `${label}:00`}
+                />
+                <Bar dataKey="price" radius={[4, 4, 0, 0]}>
+                  {hourlyTomorrow.map((h) => (
+                    <Cell
+                      key={h.hour}
+                      fill={priceColorScale(h.price, hourlyTomorrowMin, hourlyTomorrowMax)}
+                    />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="empty-state">
+              Tomorrow's prices aren't published yet — usually available around 13:00 CET.
+            </div>
           )}
         </section>
 
