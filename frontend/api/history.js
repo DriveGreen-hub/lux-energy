@@ -14,7 +14,7 @@ const TABLES = {
 };
 
 export default async function handler(req, res) {
-  const { series, from, to } = req.query;
+  const { series, from, to, type } = req.query;
   const cfg = TABLES[series];
 
   if (!cfg) {
@@ -27,14 +27,21 @@ export default async function handler(req, res) {
   res.setHeader("Cache-Control", "s-maxage=900, stale-while-revalidate=300");
 
   try {
+    const params = [from, to];
+    let typeFilter = "";
+    if (type) {
+      params.push(type);
+      typeFilter = ` AND ${cfg.extraCols} = $3`;
+    }
+
     const { rows } = await pool.query(
       `SELECT ts, ${cfg.extraCols}, ${cfg.value} AS value
        FROM ${cfg.table}
-       WHERE ts BETWEEN $1 AND $2
+       WHERE ts BETWEEN $1 AND $2${typeFilter}
        ORDER BY ts ASC`,
-      [from, to]
+      params
     );
-    res.status(200).json({ series, from, to, rows });
+    res.status(200).json({ series, from, to, type: type ?? null, rows });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

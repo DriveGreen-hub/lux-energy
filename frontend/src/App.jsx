@@ -92,6 +92,7 @@ export default function App() {
   const [history, setHistory] = useState([]);
   const [genHistory, setGenHistory] = useState([]);
   const [dailyPriceRows, setDailyPriceRows] = useState([]);
+  const [weeklyDemandRows, setWeeklyDemandRows] = useState([]);
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -133,13 +134,23 @@ export default function App() {
         // tomorrow once published. Day-ahead prices don't exist further
         // than 1 day out — this isn't a forecast, just the actual window
         // the market publishes.
-        const dailyFrom = new Date(Date.now() - 9 * 24 * 60 * 60 * 1000);
+        const dailyFrom = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
         const dailyRes = await fetch(
           `${API_BASE}/api/history?series=price&from=${dailyFrom.toISOString()}&to=${to.toISOString()}`
         );
         if (!dailyRes.ok) throw new Error(`daily price history: HTTP ${dailyRes.status}`);
         const dailyData = await dailyRes.json();
         setDailyPriceRows(dailyData.rows);
+
+        // Weekly demand trend: Load only, 7 days back — uses the new `type`
+        // filter so we're not pulling every production type over a week.
+        const weeklyFrom = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+        const weeklyRes = await fetch(
+          `${API_BASE}/api/history?series=generation&from=${weeklyFrom.toISOString()}&to=${new Date().toISOString()}&type=${encodeURIComponent("Load")}`
+        );
+        if (!weeklyRes.ok) throw new Error(`weekly demand: HTTP ${weeklyRes.status}`);
+        const weeklyData = await weeklyRes.json();
+        setWeeklyDemandRows(weeklyData.rows);
 
         setError(null);
       } catch (err) {
@@ -296,6 +307,33 @@ export default function App() {
   const dailyTrendPrices = dailyPriceTrend.map((d) => d.price);
   const dailyTrendMin = dailyTrendPrices.length ? Math.min(...dailyTrendPrices) : 0;
   const dailyTrendMax = dailyTrendPrices.length ? Math.max(...dailyTrendPrices) : 0;
+
+  // Daily average demand, past 7 days. Same shape as dailyPriceTrend so it
+  // reads consistently — will only span as many days back as we've actually
+  // been ingesting (from July 1st), filling in day by day.
+  const weeklyDemandTrend = useMemo(() => {
+    const todayKey = new Date().toDateString();
+    const buckets = {};
+    for (const row of weeklyDemandRows) {
+      const d = new Date(row.ts);
+      const dayKey = d.toDateString();
+      if (!buckets[dayKey]) buckets[dayKey] = { sum: 0, count: 0, date: new Date(d.setHours(0, 0, 0, 0)) };
+      buckets[dayKey].sum += row.value;
+      buckets[dayKey].count += 1;
+    }
+    return Object.entries(buckets)
+      .map(([dayKey, { sum, count, date }]) => ({
+        label: date.toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "2-digit" }),
+        demand: sum / count,
+        isToday: dayKey === todayKey,
+        date,
+      }))
+      .sort((a, b) => a.date - b.date);
+  }, [weeklyDemandRows]);
+
+  // Current demand: latest Load reading from the live snapshot (same 5-min
+  // refresh cycle as everything else on the dashboard).
+  const currentDemand = live?.generation?.find((g) => g.production_type === "Load");
 
   return (
     <div className="app">
@@ -577,7 +615,18 @@ export default function App() {
         </section>
 
         <section className="card card-full">
-          <div className="card-label">Power demand — last 48h</div>
+          <div className="card-label-row">
+            <div className="card-label">Power demand — last 48h</div>
+            {currentDemand && (
+              <div className="card-label-stat">
+                <span className="ticker-dot" style={{ width: 6, height: 6 }} />
+                {fmt(currentDemand.value_mw, 0)} MW now
+                <span className="daily-summary-footnote" style={{ marginTop: 0, marginLeft: 6 }}>
+                  ({relativeTime(currentDemand.ts)})
+                </span>
+              </div>
+            )}
+          </div>
           {demandHistory.length > 0 ? (
             <ResponsiveContainer width="100%" height={200}>
               <LineChart data={demandHistory}>
@@ -617,6 +666,64 @@ export default function App() {
             </ResponsiveContainer>
           ) : (
             <div className="empty-state">No demand data yet.</div>
+          )}
+        </section>
+
+        <section className="card card-full">
+          <div className="card-label">Power demand — daily average, past 7 days</div>
+          {weeklyDemandTrend.length > 0 ? (
+            <>
+              <ResponsiveContainer width="100%" height={180}>
+                <BarChart data={weeklyDemandTrend}>
+                  <CartesianGrid stroke="var(--line)" vertical={false} />
+                  <XAxis
+                    dataKey="label"
+                    stroke="var(--text-faint)"
+                    tick={{ fontSize: 11, fontFamily: "var(--font-mono)" }}
+                  />
+                  <YAxis
+                    stroke="var(--text-faint)"
+                    tick={{ fontSize: 11, fontFamily: "var(--font-mono)" }}
+                    width={50}
+                    label={{
+                      value: "MW",
+                      angle: -90,
+                      position: "insideLeft",
+                      fill: "var(--text-faint)",
+                      fontSize: 11,
+                    }}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      background: "var(--panel-raised)",
+                      border: "1px solid var(--line)",
+                      borderRadius: 8,
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 12,
+                    }}
+                    labelStyle={{ color: "var(--text-dim)" }}
+                    itemStyle={{ color: "var(--text)" }}
+                    formatter={(value) => [`${fmt(value, 0)} MW`, "avg demand"]}
+                  />
+                  <Bar dataKey="demand" radius={[4, 4, 0, 0]}>
+                    {weeklyDemandTrend.map((d) => (
+                      <Cell
+                        key={d.label}
+                        fill="var(--blue)"
+                        opacity={d.isToday ? 1 : 0.6}
+                        stroke={d.isToday ? "var(--text)" : "none"}
+                        strokeWidth={d.isToday ? 2 : 0}
+                      />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+              <div className="daily-summary-footnote">
+                Only spans as many days as we've been ingesting since July 1st — week-over-week and month-over-month comparisons will become meaningful as more history accumulates, no changes needed on your end.
+              </div>
+            </>
+          ) : (
+            <div className="empty-state">No weekly demand data yet.</div>
           )}
         </section>
 

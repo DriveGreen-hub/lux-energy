@@ -164,6 +164,26 @@ body {
   margin-bottom: 14px;
 }
 
+.card-label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.card-label-row .card-label {
+  margin-bottom: 0;
+}
+
+.card-label-stat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text);
+}
+
 /* --- Flow rows (cross-border) --- */
 
 .flow-row {
