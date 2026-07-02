@@ -118,11 +118,11 @@ export default function App() {
           }))
         );
 
-        // Today's generation, for the "so far today" import vs domestic summary.
-        const todayStart = new Date();
-        todayStart.setHours(0, 0, 0, 0);
+        // Generation history: 48h back, used for both today's import/domestic
+        // summary (filtered client-side to just today) and the demand trend chart.
+        const genFrom = new Date(Date.now() - 48 * 60 * 60 * 1000);
         const genRes = await fetch(
-          `${API_BASE}/api/history?series=generation&from=${todayStart.toISOString()}&to=${new Date().toISOString()}`
+          `${API_BASE}/api/history?series=generation&from=${genFrom.toISOString()}&to=${new Date().toISOString()}`
         );
         if (!genRes.ok) throw new Error(`generation history: HTTP ${genRes.status}`);
         const genData = await genRes.json();
@@ -156,10 +156,12 @@ export default function App() {
   // samples (energy_mwh ≈ power_mw × 0.25h per sample — approximate, since
   // it assumes uniform sampling rather than true interval integration).
   const dailySummary = useMemo(() => {
+    const todayKey = new Date().toDateString();
     let importedMwh = 0;
     let domesticMwh = 0;
     let renewableMwh = 0;
     for (const row of genHistory) {
+      if (new Date(row.ts).toDateString() !== todayKey) continue;
       const energyMwh = (row.value ?? 0) * 0.25;
       if (row.production_type === "Cross border electricity trading") {
         importedMwh += Math.max(energyMwh, 0); // only count net-import hours, not export hours
@@ -241,6 +243,18 @@ export default function App() {
   const cheapestHours = useMemo(() => {
     return [...upcomingHourly].sort((a, b) => a.price - b.price).slice(0, 3);
   }, [upcomingHourly]);
+
+  // Power demand (Load) trend — same 48h window as genHistory, just one
+  // production_type pulled out and reshaped for a line chart.
+  const demandHistory = useMemo(() => {
+    return genHistory
+      .filter((row) => row.production_type === "Load")
+      .sort((a, b) => new Date(a.ts) - new Date(b.ts))
+      .map((row) => ({
+        time: new Date(row.ts).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }),
+        demand: row.value,
+      }));
+  }, [genHistory]);
 
   return (
     <div className="app">
@@ -460,6 +474,50 @@ export default function App() {
             </>
           ) : (
             <div className="empty-state">No generation data for today yet.</div>
+          )}
+        </section>
+
+        <section className="card card-full">
+          <div className="card-label">Power demand — last 48h</div>
+          {demandHistory.length > 0 ? (
+            <ResponsiveContainer width="100%" height={200}>
+              <LineChart data={demandHistory}>
+                <CartesianGrid stroke="var(--line)" vertical={false} />
+                <XAxis
+                  dataKey="time"
+                  stroke="var(--text-faint)"
+                  tick={{ fontSize: 11, fontFamily: "var(--font-mono)" }}
+                  interval={Math.floor(demandHistory.length / 6)}
+                />
+                <YAxis
+                  stroke="var(--text-faint)"
+                  tick={{ fontSize: 11, fontFamily: "var(--font-mono)" }}
+                  width={50}
+                  label={{
+                    value: "MW",
+                    angle: -90,
+                    position: "insideLeft",
+                    fill: "var(--text-faint)",
+                    fontSize: 11,
+                  }}
+                />
+                <Tooltip
+                  contentStyle={{
+                    background: "var(--panel-raised)",
+                    border: "1px solid var(--line)",
+                    borderRadius: 8,
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 12,
+                  }}
+                  labelStyle={{ color: "var(--text-dim)" }}
+                  itemStyle={{ color: "var(--text)" }}
+                  formatter={(value) => [`${fmt(value, 0)} MW`, "demand"]}
+                />
+                <Line type="monotone" dataKey="demand" stroke="var(--blue)" strokeWidth={2} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="empty-state">No demand data yet.</div>
           )}
         </section>
 
