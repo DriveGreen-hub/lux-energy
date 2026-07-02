@@ -118,7 +118,7 @@ export default function App() {
   }, []);
 
   const price = live?.price?.price_eur_mwh;
-  const priceEurCentKwh = price !== undefined && price !== null ? price / 10 : null;
+  const priceEurKwh = price !== undefined && price !== null ? price / 1000 : null;
   const isNegative = price !== undefined && price !== null && price < 0;
 
   const generation = (live?.generation ?? [])
@@ -167,9 +167,9 @@ export default function App() {
         <div className="ticker">
           <span className="ticker-dot" />
           <span className={`ticker-value ${isNegative ? "negative" : ""}`}>
-            {priceEurCentKwh !== null ? fmt(priceEurCentKwh, 2) : "—"}
+            {priceEurKwh !== null ? `${fmt(priceEurKwh, 3)}€` : "—"}
           </span>
-          <span className="ticker-unit">ct/kWh · DE-LU day-ahead</span>
+          <span className="ticker-unit">/kWh · DE-LU day-ahead, current</span>
         </div>
         {live?.carbon_intensity && (
           <div className="ticker">
@@ -224,6 +224,7 @@ export default function App() {
                     fontSize: 12,
                   }}
                   labelStyle={{ color: "var(--text-dim)" }}
+                  itemStyle={{ color: "var(--text)" }}
                 />
                 <Line
                   type="monotone"
@@ -255,13 +256,13 @@ export default function App() {
                   tick={{ fontSize: 11, fontFamily: "var(--font-mono)" }}
                   width={50}
                   label={{
-                    value: "ct/kWh",
+                    value: "€/kWh",
                     angle: -90,
                     position: "insideLeft",
                     fill: "var(--text-faint)",
                     fontSize: 11,
                   }}
-                  tickFormatter={(v) => fmt(v / 10, 1)}
+                  tickFormatter={(v) => fmt(v / 1000, 2)}
                 />
                 <Tooltip
                   contentStyle={{
@@ -272,7 +273,8 @@ export default function App() {
                     fontSize: 12,
                   }}
                   labelStyle={{ color: "var(--text-dim)" }}
-                  formatter={(value) => [`${fmt(value / 10, 2)} ct/kWh`, "price"]}
+                  itemStyle={{ color: "var(--text)" }}
+                  formatter={(value) => [`${fmt(value / 1000, 3)}€/kWh`, "price"]}
                   labelFormatter={(label) => `${label}:00`}
                 />
                 <Bar dataKey="price" radius={[4, 4, 0, 0]}>
