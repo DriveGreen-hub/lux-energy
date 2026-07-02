@@ -1,8 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ResponsiveContainer,
   LineChart,
   Line,
+  BarChart,
+  Bar,
+  Cell,
   XAxis,
   YAxis,
   Tooltip,
@@ -42,6 +45,29 @@ function carbonColor(gco2) {
   return "var(--red)";
 }
 
+// Interpolates teal (cheap) -> amber (mid) -> red (expensive) relative to
+// today's own min/max, so the scale is always meaningful regardless of
+// the absolute price level that day.
+function priceColorScale(value, min, max) {
+  if (max === min) return "var(--teal)";
+  const t = (value - min) / (max - min);
+  if (t < 0.5) {
+    return mixColor("#35d6b5", "#f0a93a", t / 0.5);
+  }
+  return mixColor("#f0a93a", "#f2696b", (t - 0.5) / 0.5);
+}
+
+function mixColor(hexA, hexB, t) {
+  const a = parseInt(hexA.slice(1), 16);
+  const b = parseInt(hexB.slice(1), 16);
+  const ar = (a >> 16) & 255, ag = (a >> 8) & 255, ab = a & 255;
+  const br = (b >> 16) & 255, bg = (b >> 8) & 255, bb = b & 255;
+  const r = Math.round(ar + (br - ar) * t);
+  const g = Math.round(ag + (bg - ag) * t);
+  const bl = Math.round(ab + (bb - ab) * t);
+  return `rgb(${r}, ${g}, ${bl})`;
+}
+
 function relativeTime(iso) {
   if (!iso) return "never";
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -63,8 +89,8 @@ export default function App() {
         if (!liveRes.ok) throw new Error(`live: HTTP ${liveRes.status}`);
         setLive(await liveRes.json());
 
-        const to = new Date();
-        const from = new Date(to.getTime() - 48 * 60 * 60 * 1000);
+        const to = new Date(Date.now() + 24 * 60 * 60 * 1000); // include tomorrow's published day-ahead prices
+        const from = new Date(Date.now() - 48 * 60 * 60 * 1000);
         const histRes = await fetch(
           `${API_BASE}/api/history?series=price&from=${from.toISOString()}&to=${to.toISOString()}`
         );
@@ -72,6 +98,7 @@ export default function App() {
         const histData = await histRes.json();
         setHistory(
           histData.rows.map((r) => ({
+            ts: r.ts,
             time: new Date(r.ts).toLocaleTimeString("en-GB", {
               hour: "2-digit",
               minute: "2-digit",
@@ -102,6 +129,33 @@ export default function App() {
   const maxGenValue = Math.max(...generation.map((g) => Math.abs(g.value_mw)), 1);
 
   const flows = live?.cross_border_flows ?? [];
+
+  const hourlyToday = useMemo(() => {
+    const now = new Date();
+    const todayKey = now.toDateString();
+    const buckets = {};
+    for (const row of history) {
+      const d = new Date(row.ts);
+      if (d.toDateString() !== todayKey) continue;
+      const hour = d.getHours();
+      if (!buckets[hour]) buckets[hour] = { sum: 0, count: 0 };
+      buckets[hour].sum += row.price;
+      buckets[hour].count += 1;
+    }
+    const currentHour = now.getHours();
+    return Object.entries(buckets)
+      .map(([hour, { sum, count }]) => ({
+        hour: Number(hour),
+        label: String(hour).padStart(2, "0"),
+        price: sum / count,
+        isNow: Number(hour) === currentHour,
+      }))
+      .sort((a, b) => a.hour - b.hour);
+  }, [history]);
+
+  const hourlyPrices = hourlyToday.map((h) => h.price);
+  const hourlyMin = hourlyPrices.length ? Math.min(...hourlyPrices) : 0;
+  const hourlyMax = hourlyPrices.length ? Math.max(...hourlyPrices) : 0;
 
   return (
     <div className="app">
@@ -138,7 +192,7 @@ export default function App() {
 
       <div className="grid">
         <section className="card card-wide">
-          <div className="card-label">Spot price — last 48h</div>
+          <div className="card-label">Spot price trend</div>
           {history.length > 0 ? (
             <ResponsiveContainer width="100%" height={220}>
               <LineChart data={history}>
@@ -182,6 +236,59 @@ export default function App() {
             </ResponsiveContainer>
           ) : (
             <div className="empty-state">No price history yet — check back once ingestion has run a few times.</div>
+          )}
+        </section>
+
+        <section className="card card-full">
+          <div className="card-label">Price by hour — today</div>
+          {hourlyToday.length > 0 ? (
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={hourlyToday}>
+                <CartesianGrid stroke="var(--line)" vertical={false} />
+                <XAxis
+                  dataKey="label"
+                  stroke="var(--text-faint)"
+                  tick={{ fontSize: 11, fontFamily: "var(--font-mono)" }}
+                />
+                <YAxis
+                  stroke="var(--text-faint)"
+                  tick={{ fontSize: 11, fontFamily: "var(--font-mono)" }}
+                  width={50}
+                  label={{
+                    value: "ct/kWh",
+                    angle: -90,
+                    position: "insideLeft",
+                    fill: "var(--text-faint)",
+                    fontSize: 11,
+                  }}
+                  tickFormatter={(v) => fmt(v / 10, 1)}
+                />
+                <Tooltip
+                  contentStyle={{
+                    background: "var(--panel-raised)",
+                    border: "1px solid var(--line)",
+                    borderRadius: 8,
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 12,
+                  }}
+                  labelStyle={{ color: "var(--text-dim)" }}
+                  formatter={(value) => [`${fmt(value / 10, 2)} ct/kWh`, "price"]}
+                  labelFormatter={(label) => `${label}:00`}
+                />
+                <Bar dataKey="price" radius={[4, 4, 0, 0]}>
+                  {hourlyToday.map((h) => (
+                    <Cell
+                      key={h.hour}
+                      fill={priceColorScale(h.price, hourlyMin, hourlyMax)}
+                      stroke={h.isNow ? "var(--text)" : "none"}
+                      strokeWidth={h.isNow ? 2 : 0}
+                    />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="empty-state">No hourly data for today yet.</div>
           )}
         </section>
 
